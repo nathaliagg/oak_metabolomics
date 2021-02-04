@@ -1,0 +1,249 @@
+---
+author:
+  - name: "Nathalia Graf Grachet"
+    url: https://github.com/nathaliagg/oak_metabolomics
+    affiliation: University of Arizona
+editor_options: 
+  chunk_output_type: console
+---
+
+
+## Oak Metabolic Profiling
+
+
+## Libraries
+
+
+```{r}
+library(tidyverse)
+library(xcms)
+doParallel::registerDoParallel(18)
+
+## customFunnctions.R is from "https://raw.githubusercontent.com/jorainer/xcms-gnps-tools/master/customFunctions.R"
+source("https://raw.githubusercontent.com/jorainer/xcms-gnps-tools/master/customFunctions.R")
+```
+
+
+## 1 - Import centroid data
+
+
+```{r}
+load("data_centroided.RData")
+```
+
+
+## 2 - Pre-processing 
+
+
+#### 2.1 - Chromatographic peak detection
+
+
+```{r}
+## Set the CentWaveParam object
+cwp <- CentWaveParam(
+  peakwidth = c(10, 80),
+  ppm = 25, # default
+  snthresh = 10, # default
+  noise = 1e3,
+  mzdiff = -0.001
+)
+
+## peak detection
+data_cent <- findChromPeaks(data_cent, param = cwp)
+```
+
+
+Extract information about number of peak detected per sample.
+
+
+```{r}
+chrom_peaks_df <- as.data.frame(chromPeaks(data_cent))
+
+n.peaks.sample <- chrom_peaks_df %>% count(sample)
+
+colnames(n.peaks.sample) <- c('sampleIndex', 'totalPeaksDetected')
+
+n.peaks.sample <- merge(n.peaks.sample, pData(data_cent), by.x = "sampleIndex", by.y = 0)
+
+n.peaks.sample[,c(1,4,2)]
+
+write.csv(x = n.peaks.sample, file = "NumberDetectedPeaks_per_sample.csv", row.names = F)
+```
+
+
+#### 2.2 - Alignment
+
+
+```{r}
+## Group peaks (these parameters will be used in correspondence too)
+mfraction = 0.3
+bandwith = 30 # default
+size_overlap_slices = 0.25 # default
+
+## a - define PeakDensityParam
+pdp <- PeakDensityParam(sampleGroups = data_cent$LeafType, 
+                        bw = bandwith, # default 
+                        minFraction = mfraction, 
+                        binSize = size_overlap_slices # default
+                        )
+## b - Group peaks
+data_cent <- groupChromPeaks(data_cent, pdp)
+
+## Retention time correction using defaut parameters
+## a - define PeakGroupsParam
+pgp <- PeakGroupsParam(minFraction = mfraction)
+
+## b - alignment
+data_cent <- adjustRtime(data_cent, param = pgp)
+```
+
+```{r}
+## test if object has adjusted retention time
+hasAdjustedRtime(data_cent)
+```
+
+Retention time correction with either *obiwarp* or *peakGroups* is performed on all spectra including MS>1 levels if present in the [data](https://rdrr.io/bioc/xcms/man/adjustRtime-peakGroups.html)
+
+
+#### 2.3 - Correspondence
+
+
+```{r}
+## define PeakDensityParam
+pdp <- PeakDensityParam(sampleGroups= data_cent$LeafType, 
+                        bw = bandwith,
+                        minFraction = mfraction,
+                        binSize = size_overlap_slices
+                        )
+
+## perform correspondence analysis
+data_cent <- groupChromPeaks(data_cent, param=pdp)
+```
+
+
+#### 2.4 - Fill-in missing values
+
+
+Missing values occur if no chromatographic peak was assigned to a feature either because peak detection failed, or because the corresponding ion is absent in the respective sample.
+
+
+```{r}
+## determine the number of missing values
+number_na_i = sum(is.na(featureValues(data_cent)))
+```
+
+Fill-in missing peak data by a specified ppm (5) and expanding the mz range by mz width/4 (0.25)
+
+```{r warning=False}
+## a - define parameter
+fpp <- FillChromPeaksParam(ppm = 5, expandMz = 0.25)
+## b - fill in
+data_cent <- fillChromPeaks(data_cent, param=fpp)
+```
+
+Determine the number of missing values after filling in:
+
+```{r}
+number_na_f = sum(is.na(featureValues(data_cent)))
+## remaining number of na values
+number_na_f
+
+## determine number of filled peaks
+# number_na_i - number_na_f
+```
+
+
+--> End of preprocessing
+
+
+## 3 - Feature Correspondence
+
+
+```{r}
+## extract feature values after filling in
+fmat_fld <- featureValues(data_cent, value="into", method="maxint")
+
+## replace NA with zero
+fmat_fld[is.na(fmat_fld)] <- 0 
+
+## replace colnames with samplecode
+fmat_fld <- as.data.frame(fmat_fld)
+colnames(fmat_fld) <- as.vector(pd$SampleCode)
+
+write.csv(file='featureCorrespondence.csv', fmat_fld)
+```
+
+
+## 4 - Feature Definitions
+
+
+```{r}
+## get feature definitions and intensities
+featuresDef <- featureDefinitions(data_cent)
+
+## merge feature definitions with correspondencce
+dataTable <- merge(featuresDef, fmat_fld, by = 0, all = TRUE)
+dataTable <- dataTable[, !(colnames(dataTable) %in% c("peakidx"))]
+colnames(dataTable)[1] <- "Features"
+write.csv(dataTable, "featureDefinitions.csv", quote = FALSE, row.names = FALSE)
+```
+
+
+## 5 - Saving Spectra information
+
+
+```{r}
+## spectra information of pre-processed data
+## these data are useful for cloud plots
+fdata <- fData(data_cent)
+write.csv(fdata, "spectraInformation.csv")
+```
+
+
+## 6 - Extracting MS2
+
+
+```{r}
+# I modified the source function to write the feature name as the title of each MS2
+source("modified_writeMgfData.R")
+```
+
+```{r warning=FALSE}
+## export the individual spectra into a .mgf file
+filteredMs2Spectra <- featureSpectra(data_cent, return.type = "Spectra", msLevel = 2)
+
+filteredMs2Spectra <- clean(filteredMs2Spectra, all = TRUE)
+
+filteredMs2Spectra <- formatSpectraForGNPS(filteredMs2Spectra) # this is one of the custom funtions
+
+filteredMs2Spectra_consensus <- combineSpectra(filteredMs2Spectra, 
+                                               fcol = "feature_id", 
+                                               method = consensusSpectrum, 
+                                               mzd = 0, 
+                                               minProp = 0.5, 
+                                               ppm = 25,
+                                               intensityFun = median,
+                                               mzFun = median)
+
+mod_writeMgfDataFile(filteredMs2Spectra_consensus,
+                     "ms2spectra_consensus.mgf")
+```
+
+
+## 7 - Save tic and bpc objects
+
+
+```{r}
+tic <- chromatogram(data_cent, aggregationFun = "sum")
+bpc <- chromatogram(data_cent, aggregationFun = "max")
+save(tic, bpc, file = 'tic_and_bpc.RData')
+```
+
+
+## 8 - Save pre-processed RData
+
+
+```{r}
+save.image(file = "xcms_pre-processed.RData")
+```
+

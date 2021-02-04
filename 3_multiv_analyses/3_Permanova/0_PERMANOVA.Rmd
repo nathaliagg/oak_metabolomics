@@ -1,0 +1,89 @@
+---
+title: "PERMANOVA"
+author: "NGG"
+date: "07/09/2020"
+output: html_document
+---
+
+# 1. Load libraries
+
+```{r}
+suppressWarnings(suppressMessages(library(tidyverse)))
+suppressWarnings(suppressMessages(library(RColorBrewer)))
+# suppressWarnings(suppressMessages(library(ggnewscale)))
+# suppressWarnings(suppressMessages(library(ggthemes)))
+# suppressWarnings(suppressMessages(library(ggrepel)))
+# suppressWarnings(suppressMessages(library(ggpubr)))
+suppressWarnings(suppressMessages(library(vegan)))
+
+```
+
+# 2. Import data
+
+I am using filtered data from subsequent analyses. If you didn't filter your data, change file name accordingly.
+
+```{r}
+# Import data
+
+# Feature_correspondence
+features <- read.csv("../featureCorrespondence_MS2.csv", row.names = 1)
+features <- as.data.frame(t(features))
+# distance matrix - bray
+dm <- vegdist(features, method="bray")
+
+# Metadata
+metadata <- read.csv("../metadata.csv")
+metadata$SampleCode <- gsub("-", '.', metadata$SampleCode, fixed = T)
+
+# MS2
+ms2 <- read.csv("../../2_ms2_annotation/summary_ms2_annotation_energetics.csv")
+# ms2 <- ms2 %>% 
+#   select('Features', 'class', 'subclass', 'GFE')
+```
+
+# 3. PERMANOVA
+
+Permutational Multivariate Analysis of Variance Using Distance Matrices
+?adonis
+
+Sources: https://rdrr.io/rforge/vegan/man/adonis.html, https://rpubs.com/collnell/manova
+
+```{r}
+set.seed(456)
+permanova <- adonis(dm ~LeafLife + OakType + OakType:LeafLife, data=metadata, permutations=999, method="bray")
+permanova
+# print(as.data.frame(permanova$aov.tab))
+filename <- paste0("permanova_results.csv")
+write.csv(as.data.frame(permanova$aov.tab), filename)
+```
+
+Which taxa/feature contribute most to the community differences?
+
+https://mibwurrepo.github.io/Microbial-bioinformatics-introductory-course-Material-2018/multivariate-comparisons-of-microbial-community-composition.html
+
+```{r}
+test <- "LL."
+set.seed(456)
+# LEAFLIFE; adonis tests homogeneity of dispersion among groups
+p.LL <- adonis(features ~ LeafLife, data=metadata, permutations=999, method="bray")
+p.LL 
+## Interpretation:
+# The R-square value is the important statistic for interpreting Adonis as it gives you the effect size. For example an R-squared of 0.44 means that 44% of the variation in distances is explained by the grouping being tested. The p value tells you whether or not this result was likely a result of chance. A p value of 0.05 means that there is a 5% chance that you detected a difference between groups (however large or small) when indeed there was none (the null hypothesis). 
+
+############# extract coefficients for Feature representation
+# to get coefficients supply the features df instead of the matrix dm
+# matrix of coefficients of the linear model, with rows representing sources of variation and columns representing species; each column represents a fit of a species abundance to the linear model. These are what you get when you fit one species to your predictors.
+p.LL.features <- coefficients(p.LL)['LeafLife1',]
+p.LL.features <- p.LL.features[rev(order(abs(p.LL.features )))]
+p.LL.features <- as.data.frame(p.LL.features) 
+colnames(p.LL.features) <- paste0(test, 'f.contrib')
+p.LL.features <- signif(p.LL.features, 2)
+p.LL.features$Features <- rownames(p.LL.features)
+filename <- paste0("features_contribution_LeafLife.csv")
+write.csv(p.LL.features, filename)
+
+## NEGATIVE == DRIVING DECIDUOUS
+## POSTIVE == DRIVING BREVIDECIDUOUS
+
+```
+

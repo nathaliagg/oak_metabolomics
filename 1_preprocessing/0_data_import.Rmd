@@ -1,0 +1,61 @@
+---
+author:
+  - name: "Nathalia Graf Grachet"
+    url: https://github.com/nathaliagg/oak_metabolomics
+    affiliation: University of Arizona
+editor_options: 
+  chunk_output_type: console
+---
+
+
+## Oak Metabolic Profiling
+
+
+### Libraries
+
+
+Make sure `xcms` is installed.
+
+
+```{r}
+library(xcms)
+doParallel::registerDoParallel(18)
+```
+
+
+### 1 - Import data
+
+**Important** Data was already in centroid mode.
+
+
+```{r}
+# define metadata, ie, phenotypic data
+pd <- read.csv("metadata.csv")
+
+# get filenames from directory
+files <- as.vector(paste0("/groups/tfaily/nathaliagg/uren_oak_metabolomics/data_mzxml/", pd$FileName))
+
+# Read the data:
+data_cent <- readMSData(files, 
+                        pdata = new("NAnnotatedDataFrame", pd), 
+                        mode = "onDisk",
+                        verbose = TRUE)
+```
+
+
+The MS experiment is now represented as an `OnDiskMSnExp` object. 
+
+Information stored in the `OnDiskMSnExp` object after import:
+```{r}
+show(data_cent)
+```
+
+
+## 2 - Save R object as `.RData`
+
+Save as an R object so later, you don't need to re-import the data
+```{r}
+## Save data object as rds
+save(data_cent, pd, file = "data_centroided.RData")
+```
+

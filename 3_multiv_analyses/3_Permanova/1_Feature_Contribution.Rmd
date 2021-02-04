@@ -1,0 +1,292 @@
+---
+title: "PERMANOVA"
+author: "NGG"
+date: "07/09/2020"
+output: html_document
+---
+
+# 1. Load libraries
+
+```{r}
+suppressWarnings(suppressMessages(library(ggpubr)))
+suppressWarnings(suppressMessages(library(tidyverse)))
+suppressWarnings(suppressMessages(library(pheatmap)))
+```
+
+
+# 2. Import data
+
+I am using filtered data from subsequent analyses. If you didn't filter your data, change file name accordingly.
+
+```{r}
+# Import data
+
+# Feature contribution
+fcontrib <- read.csv("features_contribution_LeafLife.csv", row.names = 1)
+
+# MS2
+ms2 <- read.csv("../../2_ms2_annotation/summary_ms2_annotation_energetics.csv")
+# ms2 <- ms2 %>% 
+#   select('Features', 'class', 'subclass', 'GFE')
+```
+
+
+# 3. Feature Contribution
+
+
+```{r}
+p.LL.features <- fcontrib
+p.LL.features.ms2 <- merge(p.LL.features, ms2, on='Features')
+
+t2 = quantile(abs(p.LL.features$LL.f.contrib), 0.75)
+t2
+
+## NEGATIVE == DRIVING DECIDUOUS
+## POSTIVE == DRIVING BREVIDECIDUOUS
+
+p.LL.features.ms2 <- mutate(p.LL.features.ms2,
+                            Group = if_else(abs(LL.f.contrib)<t2, 'low contribution',
+                                                if_else(LL.f.contrib>t2, 'Brevideciduous', 'Deciduous')))
+
+write.csv(p.LL.features.ms2, "features_contribution_Group_LeafLife.csv", row.names = F)
+
+# total features
+nfeatures = dim(p.LL.features.ms2)[1]
+
+# annotations
+brev <- p.LL.features.ms2 %>% filter(LL.f.contrib > 0)
+n.brev <- dim(brev)[1]
+
+dec <- p.LL.features.ms2 %>% filter(LL.f.contrib < 0)
+n.dec <- dim(dec)[1]
+
+total <- paste0(nfeatures,' features detected in total.')
+upfeatures <- paste0(n.brev,' driving Brevideciduous.')
+downfeatures <- paste0(n.dec,' driving Deciduous.')
+
+total; upfeatures; downfeatures
+
+ft_count <- p.LL.features.ms2 %>% 
+  group_by(Group) %>% 
+  count()
+
+n.f.brev <- pull(ft_count[ft_count$Group=='Brevideciduous', "n"])
+n.f.dec <- pull(ft_count[ft_count$Group=='Deciduous', "n"])
+```
+
+
+## 4. GFE (top t2)
+
+
+```{r}
+p.LL.features.med <- p.LL.features.ms2 %>%
+    filter(abs(LL.f.contrib)>t2) %>%
+    group_by(Group) %>% 
+    summarise(median = median(GFE))
+
+
+listColors <- c('Brevideciduous' = '#AA3377', 'Deciduous' = '#117733')
+down = round(pull(p.LL.features.med[p.LL.features.med$Group == 'Deciduous', 'median']), 2)
+up = round(pull(p.LL.features.med[p.LL.features.med$Group == 'Brevideciduous', 'median']), 2)
+
+result.stat = compare_means(GFE ~ Group, data = p.LL.features.ms2, method = "kruskal.test")
+result.stat
+method = result.stat$method
+p.value = result.stat$p.format
+p.sig = result.stat$p.signif
+
+
+s = 10
+gfe_curve <- 
+  p.LL.features.ms2 %>%
+    filter(abs(LL.f.contrib)>t2) %>%
+  ggplot(aes(x = GFE, color = Group, fill=Group)) +
+  geom_density(size=0.5, alpha = 0.5) +
+  geom_vline(aes(xintercept = down), color = listColors['Deciduous'], alpha=0.7, size = 0.5) +
+  geom_vline(aes(xintercept = up), color = listColors['Brevideciduous'], alpha = 0.7, size = 0.5) +
+  geom_boxplot(aes(x=GFE, fill=Group), width = 0.005, color = 'black', alpha = 0.6,show.legend = F) +
+  scale_color_manual(values = listColors) +
+  scale_fill_manual(values = listColors) +
+  geom_text(aes(x = 70, y = 0.005),
+              label = paste0(method,', p = ', p.value," ", p.sig), color = "black", size = 2) +
+  geom_text(aes(x = down-5, y = 0.032),
+            label = paste0("(n = ", n.f.dec,") ",down), color = listColors['Deciduous'], size = 2) +
+  geom_text(aes(x = up+5, y =0.038),
+            label = paste0("(n = ",n.f.brev,") ",up), color = listColors['Brevideciduous'], size = 2) +
+  theme_bw(base_size = s) +
+    theme(
+        legend.title = element_blank(),
+        legend.position = "bottom",
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank()
+    ) +
+  guides(color = guide_legend(override.aes = list(size=0.5)))
+  
+gfe_curve
+ggsave('GFE_density_boxplot.png',units=c('in'), width=5, height=4, dpi=300, gfe_curve)
+```
+
+
+## 4 - Classes
+
+
+```{r}
+ll.contrib <- 
+  p.LL.features.ms2 %>% 
+  filter(abs(LL.f.contrib)>t2) %>% 
+  ggplot(aes(x = reorder(Features, LL.f.contrib), y = LL.f.contrib, fill = LL.f.contrib > 0)) +
+    geom_bar(stat="identity", width = 1, color='black', size=0.1, alpha=0.6) + 
+    ylab("Contribution") +
+    xlab("MS Features") +
+    ggtitle(paste0("Contribution of features to Leaf Life")) +
+    scale_fill_manual(values = c('#117733', '#AA3377'), labels = c('Deciduous', 'Brevideciduous')) +
+    # geom_hline(yintercept = t2, color = '#AA3377', size=0.5) +
+    # geom_hline(yintercept = - t2, color = '#117733', size=0.5) +
+    # scale_color_manual(values = list_of_colors) +
+    # coord_flip() +
+    theme_linedraw(base_size = 8) +
+    theme(
+      legend.title = element_blank(),
+      legend.position = "top",
+      legend.key.size = unit(0.3, 'cm'),
+        # axis.text.y = element_blank(),
+        # axis.ticks.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        # panel.grid.minor.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()
+    ) 
+
+ll.contrib
+ggsave('Ft_Contribution_barplot.png',units=c('in'), width=6, height=4, dpi=300, ll.contrib)
+
+
+p.LL.features.ms2$subclass[p.LL.features.ms2$subclass==""] <- 'No classification'
+p.LL.features.ms2$class[p.LL.features.ms2$class==""] <- 'No classification'
+p.LL.features.ms2$superclass[p.LL.features.ms2$superclass==""] <- 'No classification'
+
+superclass_count <- p.LL.features.ms2 %>% 
+  filter(abs(LL.f.contrib)>t2) %>% 
+  group_by(superclass, Group) %>%
+  count() %>% 
+  arrange(superclass, Group,  desc(n))
+write.csv(superclass_count, "superclass_count.csv", row.names = F)
+
+p.LL.features.ms2 %>% 
+  filter(abs(LL.f.contrib)>t2) %>% 
+  group_by(superclass,Group, HMDB, COCONUT, KEGG, CHEBI, BioCyc) %>%
+  count() %>% 
+  arrange(desc(n)) %>% 
+  write.csv(., "superclass_count_DBs.csv", row.names = F)
+
+
+
+class_count <- p.LL.features.ms2 %>% 
+  filter(abs(LL.f.contrib)>t2) %>% 
+  group_by(class, Group) %>%
+  count() %>% 
+  arrange(class, Group, desc(n))
+write.csv(class_count, "class_count.csv", row.names = F)
+p.LL.features.ms2 %>% 
+  filter(abs(LL.f.contrib)>t2) %>% 
+  group_by(class,Group, HMDB, COCONUT, KEGG, CHEBI, BioCyc) %>%
+  count() %>% 
+  arrange(desc(n)) %>% 
+  write.csv(., "class_count_DBs.csv", row.names = F)
+
+
+subclass_count <- p.LL.features.ms2 %>% 
+  filter(abs(LL.f.contrib)>t2) %>% 
+  group_by(subclass, Group) %>%
+  count() %>% 
+  arrange(subclass, Group, desc(n))
+write.csv(subclass_count, "subclass_count.csv", row.names = F)
+
+```
+
+
+
+
+## 5 - Heatmap
+
+
+```{r}
+p.LL.features.f <- p.LL.features.ms2 %>%
+    filter(abs(LL.f.contrib)>t2)
+
+# # Metadata
+metadata <- read.csv("../metadata.csv")
+metadata$SampleCode <- gsub("-", '.', metadata$SampleCode, fixed = T)
+
+# feature definitions
+fdef <- read.csv('../../1_preprocessing/featureDefinitions.csv')
+
+list_columns <- c(1, grep('Q', colnames(fdef)))
+list_rows <- c(p.LL.features.f$Features)
+
+fdef <- fdef[fdef$Features %in% list_rows, list_columns]
+
+subset_p.LL <- p.LL.features.f[, c(1,2)]
+
+fdef <- merge(fdef, subset_p.LL, on='Features')
+
+fdef <- fdef %>% 
+  pivot_longer(!c(Features, LL.f.contrib), names_to = 'SampleID', values_to='intensity') %>% 
+  filter(intensity > 0) %>% 
+  select(-intensity) %>% 
+  pivot_wider(names_from=SampleID, values_from=LL.f.contrib) 
+
+fdef <- as.data.frame(fdef)
+
+fdef[is.na(fdef)] <- 0
+
+rownames(fdef) <- fdef$Features
+
+fdef <- fdef %>% 
+  select(-Features)
+```
+
+```{r}
+save_pheatmap_png <- function(x, filename, width=1200, height=1000, res = 150) {
+  png(filename, width = width, height = height, res = res)
+  grid::grid.newpage()
+  grid::grid.draw(x$gtable)
+  dev.off()
+}
+```
+
+
+```{r}
+library(viridis)
+
+mat_col <- as.data.frame(metadata[,c('LeafLife','OakType')])
+colnames(mat_col) <- c('LeafLife','OakType')
+rownames(mat_col) <- metadata$SampleCode
+
+mat_colors <- list(LeafLife = c('#AA3377', '#117733'),
+                   OakType = c("firebrick3", "antiquewhite2"))
+
+names(mat_colors$LeafLife) <- c('Brevideciduous', 'Deciduous')
+names(mat_colors$OakType) <- c('Red','White')
+
+fhmap <- pheatmap(
+  mat               = fdef,
+  color             = viridis(15),
+  border_color      = NA,
+  show_colnames     = TRUE,
+  angle_col         = 45,
+  show_rownames     = FALSE,
+  annotation_col    = mat_col,
+  annotation_colors = mat_colors,
+  drop_levels       = TRUE,
+  fontsize          = 6,
+  main              = "Feature Contribution - Permanova",
+  cutree_cols       = 2,
+  cutree_rows       = 2,
+  annotation_names_col = F
+)
+
+save_pheatmap_png(fhmap, "feature_contribution_heatmap.png", width=900, height = 800)
+```
+
+

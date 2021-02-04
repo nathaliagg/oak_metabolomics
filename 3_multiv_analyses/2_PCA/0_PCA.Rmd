@@ -1,0 +1,169 @@
+---
+title: "PCA"
+author: "NGG"
+date: "7/08/2020"
+output: html_document
+---
+
+# 1. Load libraries
+
+```{r}
+suppressWarnings(suppressMessages(library(tidyverse)))
+suppressWarnings(suppressMessages(library(RColorBrewer)))
+suppressWarnings(suppressMessages(library(factoextra)))
+# suppressWarnings(suppressMessages(library(ggnewscale)))
+# suppressWarnings(suppressMessages(library(ggthemes)))
+suppressWarnings(suppressMessages(library(ggrepel)))
+# suppressWarnings(suppressMessages(library(ggpubr)))
+
+make_screeplot <- function(eigen, dimensions){
+  scree <- ggplot(data=eigen, aes(x=as.factor(dimensions), y=round(variance.percent,digits=2))) +
+    geom_bar(stat="identity", fill='steelblue', color="black") +
+    theme_linedraw(base_size = size) +
+    xlab('Dimensions') +
+    ylab('Explained variance (%)') + ylim(0,max(eigen$variance.percent)*1.3) +
+    geom_text(data=eigen, aes(label=paste0(round(variance.percent,digits=2),'%')), size=4, vjust=-0.7, hjust=-0.1, angle=30) +
+    geom_point(data=eigen, aes(x=as.factor(dimensions), y=variance.percent), color='black') +
+    geom_path(data=eigen, aes(x=as.numeric(dimensions), y=variance.percent), color='black') +
+    theme(axis.title.x = element_text(size=size+2,face="bold"),
+          axis.title.y = element_text(size=size+2,face="bold"),
+          axis.text = element_text(size=size-2),
+          plot.title = element_text(size=size+2,face="bold"))
+  return(scree)
+}
+
+make_cumvar <- function(eigen, dimensions){
+  cumvar <- ggplot(data=eigen, aes(x=as.factor(dimensions), y=cumulative.variance.percent/100, group=1)) +
+    geom_line(size=1.2, color='black') +
+    geom_point(size=3, color='black') +
+    xlab('PC axes') + ylab('Amount of explained variance') +
+    theme_linedraw(base_size = size) + ylim(0, 1.05) +
+    theme(axis.title.x = element_text(size=size+2,face="bold"),
+          axis.title.y = element_text(size=size+2,face="bold"),
+          axis.text = element_text(size=size-2),
+          plot.title = element_text(size=size+2,face="bold"))
+  return(cumvar)
+}
+
+get_arrows <- function(pca, pca_coordinates){
+    # prepare arrows
+    # extract variable coordinates
+    vars <- facto_summarize(pca, element = "var", result=c("coord","contrib","cos2"), axes=c(1,2))
+    colnames(vars)[2:3] <-  c("xend", "yend")
+    # rescale variable coordinates
+    r <- min( (max(pca_coordinates[,"PC1"])-min(pca_coordinates[,"PC1"])/(max(vars[,"xend"])-min(vars[,"xend"]))),
+              (max(pca_coordinates[,"PC2"])-min(pca_coordinates[,"PC2"])/(max(vars[,"yend"])-min(vars[,"yend"]))) )
+    # multiply vars data by r before biplotting
+    # in the original code (https://github.com/kassambara/factoextra/blob/master/R/fviz_pca.R), it calculates r for rescalling and
+    # multiplies by 0.7 for plotting... IDK why...
+    vars[,c("xend", "yend")] <- vars[,c("xend", "yend")]*r
+    arrows <- as.data.frame(vars)
+    return(arrows) # columns names, xend, yend for biplot :)
+}
+
+```
+
+# 2. Import data
+
+I am using filtered data from subsequent analyses. If you didn't filter your data, change file name accordingly.
+
+```{r}
+# Import data
+
+# Feature_correspondence
+features <- read.csv("../featureCorrespondence_MS2.csv", row.names = 1)
+
+features <- as.data.frame(t(features))
+
+# Metadata
+metadata <- read.csv("../metadata.csv")
+metadata$SampleCode <- gsub("-", '.', metadata$SampleCode, fixed = T) # ughhhhhhh
+
+# MS2 Annotation
+# ms2 <- read.csv("sirius_ms2_output_parsed_fullAnnotation.csv")
+```
+
+
+# 3. PCA 
+
+
+```{r}
+t.features <- features
+t.metadata <- metadata
+
+## Calculate PCA with prcomp()
+pca <- prcomp(t.features, scale = T, center = T)
+
+## Extract eigenvalues and variances
+eigen <- get_eigenvalue(pca) # this function is from factoextra
+dimensions <- c(1:dim(eigen)[1]) # this is for the plot
+
+## Make screeplot and cumulative variance plot
+h = 6
+w = 8
+res = 300
+size = 10
+
+scree <- make_screeplot(eigen, dimensions) + ggtitle('Scree plot')
+filename <- "PCA_screeplot.png"
+ggsave(filename,units=c('in'),width=w,height=h,dpi=res,scree)
+
+cumvar <-  make_cumvar(eigen, dimensions) + ggtitle('Cumulative variance plot')
+filename <- "PCA_cumulative_var.png"
+ggsave(filename,units=c('in'),width=w,height=h,dpi=res,cumvar)
+
+## Prepare label for PCA plot
+pc1 <- paste0('PC1 (',round(eigen$variance.percent[1],digits=1),'%)')
+pc2 <- paste0('PC2 (',round(eigen$variance.percent[2],digits=1),'%)')
+
+## Extract sample/individual coodinates for PC1 and PC2
+pca_results <- get_pca_ind(pca) 
+pca_coordinates <- as.data.frame(pca_results$coord[,c(1,2)])
+colnames(pca_coordinates) <- c('PC1','PC2')
+pca_coordinates$SampleID <- rownames(pca_coordinates)
+pca_coordinates <- merge(pca_coordinates, t.metadata, by.x="SampleID", by.y="SampleCode")
+write.csv(pca_coordinates, file="PCA_individual_coordinates.csv", row.names=F)
+
+# arrows
+arrows <- get_arrows(pca, pca_coordinates)
+vector_corr <- as.data.frame(get_pca(pca)[["cor"]][,c(1,2)])
+colnames(vector_corr) <- c("PC1_Vector_corr", "PC2_Vector_corr")
+vector_corr$abs_PC1_Vector_corr <- abs(vector_corr$PC1_Vector_corr)
+vector_corr$abs_PC2_Vector_corr <- abs(vector_corr$PC2_Vector_corr)
+vector_corr$name <- rownames(vector_corr)
+arrows <- merge(arrows, vector_corr, by = 'name')
+# arrows <- merge(arrows, ms2, by.x = "name", by.y = "Features", all.x = TRUE)
+write.csv(arrows,file=paste0("PCA_vector_coordinates.csv"), row.names=TRUE)
+
+# PCA plot option 1
+h = 3
+w = 3
+size = 4
+
+listColors <- c('Brevideciduous' = '#AA3377', 'Deciduous' = '#117733')
+listShapes <- c('Red' = 19, 'White' = 17)
+
+pca_plot1 <-  ggplot(mapping = aes(x, y)) +
+  geom_point(data=pca_coordinates, aes(x=PC1, y=PC2, col=LeafLife, shape=OakType), 
+               size=1.5, show.legend = TRUE) +
+    geom_text_repel(data=pca_coordinates, aes(x=PC1, y=PC2), color='black', parse=T,
+                   label=pca_coordinates$itSpeciesName, size=1.5, show.legend = FALSE) +
+    theme_linedraw(base_size = size) + labs(title = "PCA",x= pc1, y=pc2) +
+    scale_color_manual(values = listColors) +
+    scale_shape_manual(values = listShapes) +
+    theme( legend.text = element_text(size = size, face="bold"),
+           legend.title = element_blank(),
+           legend.position = "bottom",
+           legend.key.size = unit(0.6, "cm"),
+           legend.key.width = unit(0.6,"cm"),
+           axis.title.x = element_text(size=size+2,face="bold"),
+           axis.title.y = element_text(size=size+2,face="bold"),
+           plot.title = element_text(size=size+2,face="bold")) 
+pca_plot1
+
+filename <- "PCA_plot_colorOakType.png"
+ggsave(filename,units=c('in'),width=w,height=h,dpi=res, pca_plot1)
+```
+
+
+

@@ -1,0 +1,130 @@
+
+
+# 1. Load libraries
+
+```{r}
+suppressWarnings(suppressMessages(library(ggpubr)))
+suppressWarnings(suppressMessages(library(tidyverse)))
+suppressWarnings(suppressMessages(library(png)))
+suppressWarnings(suppressMessages(library(grid)))
+```
+
+# 2. Import data
+
+
+```{r}
+# stats results
+result_stats <- read.csv('features_contribution_LeafLife.csv')
+
+# # feature information
+result_xcms <- read.csv("../../1_preprocessing/featureDefinitions.csv")
+result_xcms <- result_xcms %>% filter(Features %in% result_stats$Features)
+#rownames(result_xcms) <- result_xcms$Features
+result_xcms <- result_xcms %>% select(Features, rtmed, mzmed)
+
+result_stats <- merge(result_stats, result_xcms, on=0)
+```
+
+
+# CLOUD PLOT FOR `LeafLife`
+
+```{r}
+t = 0
+# # up-regulated in LIVING
+ll.up <-  result_stats %>% filter(LL.f.contrib > t) %>% arrange(LL.f.contrib)
+
+# # up-regulated in LIVING
+ll.down <-  result_stats %>% filter(LL.f.contrib < -t) %>% arrange(desc(LL.f.contrib))
+```
+
+# TIC for background
+
+```{r fig.width=8}
+# read in for background
+img1 <- png::readPNG("tic_Brevideciduous.png") 
+img2 <- png::readPNG("tic_Deciduous_inv.png") 
+```
+
+# CLOUD PLOT
+
+```{r}
+w=20
+h=10
+size=15
+res=300
+
+t2 = quantile(abs(result_stats$LL.f.contrib), 0.75)
+
+# from GFE listColors <- c('Brevideciduous' = '#AA3377', 'Deciduous' = '#117733')
+
+point.ok.up <- ggplot(ll.up) + 
+        annotation_custom(rasterGrob(img1, width = unit(1,"npc"), height = unit(1,"npc")), 
+                          xmin = 0, xmax = 2942, ymin = 10, ymax = 1000) +
+        geom_point(aes(x = rtmed, y = mzmed, color = LL.f.contrib > t2, 
+                       fill = LL.f.contrib > t2, size = LL.f.contrib), alpha=0.5) + 
+        scale_fill_manual(name = 'top contribution ', 
+                          values = setNames(c("#AA3377", "antiquewhite3"), c(T, F))) +
+        scale_color_manual(name = 'top contribution ', 
+                           values = setNames(c("#AA3377", "antiquewhite3"), c(T, F))) +
+        scale_size_continuous(name = 'contribution', range = c(1,8)) + 
+        scale_y_continuous('Features (m/z)', limits = c(0,1000), expand=c(0,0)) +
+        scale_x_continuous(limits = c(0, 2942), expand=c(0,0)) +
+        theme_linedraw(base_size = size) + 
+        theme(axis.title.x = element_blank(), 
+              axis.text.x = element_blank(), 
+              axis.ticks.x = element_blank(),
+              legend.text = element_text(size = size, face="bold"), 
+              legend.title = element_text(size = size,face="bold"),
+              legend.key.size = unit(1, "cm"), 
+              legend.key.width = unit(1,"cm"),
+              axis.title.y = element_text(size = size,face="bold"), 
+              axis.text.y = element_text(size = size,face="bold"),
+              panel.grid.major=element_blank(),
+              panel.grid.minor=element_blank(),) +
+        guides(colour = guide_legend(override.aes = list(size = 5))) 
+# point.ok.up
+ggsave('cloud_Brevideciduous.png', units=c('in'), width=w, height=h, dpi=res, point.ok.up)
+
+
+point.ok.down <- ggplot(ll.down) +
+        annotation_custom(rasterGrob(img2, width = unit(1,"npc"), height = unit(1,"npc")), 
+                          xmin = 0, xmax = 2942, ymin = -Inf, ymax = -10) +
+        geom_point(aes(x = rtmed, y = mzmed, color = LL.f.contrib < -t2, 
+                       fill = LL.f.contrib < -t2, size = LL.f.contrib), alpha=0.5) + 
+        scale_fill_manual(name = 'top contribution ', 
+                          values = setNames(c("#117733","antiquewhite3"), c(T, F))) +
+        scale_color_manual(name = 'top contribution ', 
+                           values = setNames(c("#117733","antiquewhite3"), c(T, F))) +
+        scale_size(name = 'contribution', trans="reverse") + 
+        scale_y_reverse('Features (m/z)', limits = c(1000,0), expand=c(0,0)) +
+        scale_x_continuous(limits = c(0,2942), expand=c(0,0)) +
+        theme_linedraw(base_size = size) + 
+        theme(axis.title.x = element_blank(), 
+              axis.text.x = element_blank(), 
+              axis.ticks.x = element_blank(),
+              legend.text = element_text(size = size, face="bold"), 
+              legend.title = element_text(size = size,face="bold"),
+              legend.key.size = unit(1, "cm"), 
+              legend.key.width = unit(1,"cm"),
+              axis.title.y = element_text(size = size,face="bold"), 
+              axis.text.y = element_text(size = size,face="bold"),
+              panel.grid.major=element_blank(),
+              panel.grid.minor=element_blank(),) +
+        guides(colour = guide_legend(override.aes = list(size = 5)))
+# point.ok.down
+ggsave('cloud_Deciduous.png', units=c('in'), width=w, height=h, dpi=res, point.ok.down)
+
+cloud <- ggarrange(point.ok.up, point.ok.down, ncol = 1, nrow=2) 
+# cloud
+w=14
+h=10
+ggsave('CloudPlot__Brevideciduous_vs_Deciduous.png', units=c('in'), width=w, height=h, dpi=res, cloud)
+```
+
+
+
+
+
+
+
+

@@ -1,0 +1,137 @@
+---
+title: "TIC for CloudPlot"
+author: "Nathalia Graf-Grachet"
+date: "1/8/2021"
+output: html_document
+---
+
+## Libraries
+
+```{r}
+library(tidyverse)
+library(xcms)
+library(RColorBrewer)
+```
+
+
+## Import RData
+
+```{r}
+load("../../1_preprocessing/xcms_pre-processed.RData")
+```
+
+
+## Getting TIC for background in CloudPlots
+
+```{r}
+# Feature information of pre-processed data
+fdata <- fData(data_cent)
+
+# filter out MS2
+fdata <- fdata %>% 
+  filter(msLevel == 1)
+
+# add index to pd
+rownames(pd) <- 1:dim(pd)[1]
+pd$index <- rownames(pd)
+
+# get tic after preprocessing
+tic.aligned <- data.frame(rtime = numeric(),
+                          intensity = numeric(), 
+                          spectra = character(), 
+                          fileIndex = numeric(),
+                          stringsAsFactors = FALSE) 
+
+for(i in seq(1:dim(pd)[1])){
+  #print(i)
+  temp <- as.data.frame(tic[1,i])
+  temp$spectra <- rownames(temp)
+  temp$fileIndex <- i
+  tic.aligned <- rbind(tic.aligned, temp)
+}
+```
+
+```{r}
+tic_cp <- function(fdata, t = "NAME"){
+  ggplot(fdata) + 
+        geom_line(aes(x=rtime , y=intensity, group=as.factor(fileIndex)),
+                        color='grey', size=0.2, alpha = 0.7, show.legend = FALSE) +
+                      # color=as.factor(fileIndex)), size=0.2, alpha = 0.5, show.legend = FALSE) +
+        scale_y_continuous(t, 
+                           limits = c(min(fdata$intensity), max(fdata$intensity)),
+                           expand = c(0, 0)) +
+        scale_x_continuous(expand = c(0, 0)) +
+        theme_linedraw() + 
+        theme(axis.title.x = element_blank(), 
+              axis.text.x = element_blank(), 
+              axis.ticks.x=element_blank(),
+              panel.grid.major = element_blank(), 
+              panel.grid.minor = element_blank(),
+              panel.background = element_rect(fill = "transparent"), # bg of the panel
+              plot.background = element_rect(fill = "transparent", color = NA),
+              panel.border=element_blank(), 
+              plot.margin=grid::unit(c(0,0,0,0), "mm"),
+              axis.title.y = element_blank(), 
+              axis.text.y = element_blank(), 
+              axis.ticks.y=element_blank())
+}
+
+tic_cp.inv <- function(fdata, t = "NAME"){
+  ggplot(fdata) + 
+        geom_line(aes(x=rtime , y=intensity, group=as.factor(fileIndex)),
+                  color='grey', size=0.2, alpha = 0.7, show.legend = FALSE) +
+                      # color=as.factor(fileIndex)), size=0.2, alpha = 0.5, show.legend = FALSE) +
+        scale_y_reverse(t, 
+                           limits = c(max(fdata$intensity), min(fdata$intensity)),
+                           expand = c(0.005, 0)) +
+        scale_x_continuous(expand = c(0, 0)) +
+        theme_linedraw() + 
+        theme(axis.title.x = element_blank(), 
+              axis.text.x = element_blank(), 
+              axis.ticks.x=element_blank(),
+              panel.grid.major = element_blank(), 
+              panel.grid.minor = element_blank(),
+              panel.background = element_rect(fill = "transparent"), # bg of the panel
+              plot.background = element_rect(fill = "transparent", color = NA),
+              panel.border=element_blank(), 
+              plot.margin=grid::unit(c(0,0,0,0), "mm"),
+              axis.title.y = element_blank(), 
+              axis.text.y = element_blank(), 
+              axis.ticks.y=element_blank())
+}
+```
+
+## LeafLife
+
+```{r}
+# get indices
+dec.index <- c(pd[pd$LeafLife == "Deciduous", 'index'])
+brev.index <- c(pd[pd$LeafLife == "Brevideciduous",'index',])
+
+# split files by group
+fdata.dec <- tic.aligned %>% filter(fileIndex %in% dec.index)
+fdata.brev <- tic.aligned %>% filter(fileIndex %in% brev.index)
+
+w=20
+h=10
+res=300
+## TICs
+tic.dec <- tic_cp(fdata.dec, t = "Deciduous (TIC)")
+ggsave('tic_Deciduous.png', 
+        units=c('in'), width=w, height=h, dpi=res, tic.dec, bg = "transparent")
+
+tic.dec.inv <- tic_cp.inv(fdata.dec, t = "Deciduous (TIC)")
+ggsave('tic_Deciduous_inv.png', 
+        units=c('in'), width=w, height=h, dpi=res, tic.dec.inv, bg = "transparent")
+
+
+
+tic.brev <- tic_cp(fdata.brev, t = "Brevideciduous (TIC)")
+ggsave('tic_Brevideciduous.png', 
+       units=c('in'), width=w, height=h, dpi=res, tic.brev, bg = "transparent")
+
+tic.brev.inv <- tic_cp.inv(fdata.brev, t = "Brevideciduous (TIC)")
+ggsave('tic_Brevideciduous_inv.png', 
+       units=c('in'), width=w, height=h, dpi=res, tic.brev.inv, bg = "transparent")
+```
+
